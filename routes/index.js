@@ -54,187 +54,191 @@ router.get('/', function(req, res, next) {
     res.render('index', { title: 'Express', authUrl:authUrl });
   });
 
-router.get('/auth/google/callback', async function(req, res, next)
+router.get('/auth/google/callback', function(req, res)
 {
+  cookie=req.session.sdsWinToken;
+  code = req.query.code;
 
+  isTokenStored(cookie).then(function(isTokenStoredResult){
+    console.log('isTokenStored result: '+ isTokenStoredResult);
+    if(isTokenStoredResult===false){return fetchAccessToken(code);}
+    else{return isTokenStoredResult;}
+  }).then(function(token){
+    if(req.session.sdsWinToken === undefined){
+      console.log('cookie is being set');
+      req.session.sdsWinToken = token;
+    }
+    return setoAuth2Client(token);
+  }).then(function(setoAuth2ClientResult){
+    console.log(setoAuth2ClientResult);
+    res.render('dashboard',{title:'You\'re Authorized'})
+  });
+}); //end google callback router
 
-function authorizeUser(req){
+router.post('/create-folder', function(req, res){
 
-      return new Promise(function(resolve, reject){
+  var projectId=req.body.projectId;
+  createFolder(oAuth2Client, projectId).then(function(result){
+    console.log('about to render win')
+    res.render('win', {title:'folder created!', folderId: result})
+  });
+});//end create-folder router
 
+router.get('/dashboard', function(req, res){
+    res.render('dashboard', {title:'ready to make another folder?'});
+});//end create-folder router
 
-        console.log('Cookies: ', req.cookies)
-    // sdsWinToken = req.cookies.sdsWinToken
-    console.log('req.session');
-    console.log(req.session);
-    if (req.session.sdsWinToken===undefined)//this seems to always be true
+let isTokenStored = function(cookie){
+  return new Promise(function(resolve, reject){
+
+    console.log('cookie passed to isTokenStored:')
+    console.log(cookie)
+    if (cookie===undefined)//this seems to always be true
     {
-      console.log('no cookie found for sdsWinToken, getting token');
-      getAccessToken(oAuth2Client, listFiles)
-
+      console.log('no cookie found for sdsWinToken, returning false');
+      // req.session.sdsWinToken = getAccessToken(oAuth2Client, listFiles, req.query.code)
+      resolve(false);
     }
     else {
-      console.log('sdsWinToken found, using it to set credentials:');
-      console.log(req.session.sdsWinToken);
-
-      oAuth2Client.setCredentials(req.session.sdsWinToken);
-      console.log('about to call list files');
-      listFiles(oAuth2Client);
-
-    }
-
-    function getAccessToken(oAuth2Client, callback) {
-
-      code=req.query.code;
-        oAuth2Client.getToken(code, (err, token) => {
-          if (err) return console.error('Error retrieving access token', err);
-          console.log('token:');
-          console.log(token);
-          sdsWinToken = token;
-          console.log('sdsWinToken set to token and now value is:')
-          console.log(sdsWinToken);
-          oAuth2Client.setCredentials(sdsWinToken);
-          // Store the token to disk for later program executions
-          // fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err) => {
-          //   if (err) console.error(err);
-          //   console.log('Token stored to', TOKEN_PATH);
-          // });
-
-          //set the users cookie for the token for multiple calls and multiple users
-          req.session.sdsWinToken = sdsWinToken;
-          console.log ("sds win token in res is" + req.session.sdsWinToken)
-          console.log("about to callback listFiles");
-          callback(oAuth2Client);
-        });
+      console.log('sdsWinToken found, returning true');
+      resolve(cookie);
+      // oAuth2Client.setCredentials(req.session.sdsWinToken);
+      // console.log('about to call list files');
+      // listFiles(oAuth2Client);
 
     }
 
-    function listFiles(auth) {
-      console.log('inside listFiles');
-      console.log('req.session.sdsWinToken:')
-      console.log(req.session.sdsWinToken)
+  });
+};
 
-      const drive = google.drive({version: 'v3', auth});
-      var fileMetadata = {
-        'name': 'Invoices',
-        'mimeType': 'application/vnd.google-apps.folder'
-      };
-      drive.files.create({
-        resource: fileMetadata,
-        fields: 'id'
-      }, function (err, res) {
-        if (err) {
-          // Handle error
-          console.error(err);
-        } else {
-          console.log('Folder id: ', res.data.id);
-        }
-      });
-resolve();
-}//end listfiles
+let setoAuth2Client = function(token){
+  console.log('in setoAuth2Client');
+  return new Promise(function(resolve, reject){
+    oAuth2Client.setCredentials(token);
+    resolve(oAuth2Client);
+  });
+};
 
-});//end promise
+let fetchAccessToken = function(code){
+  return new Promise(function(resolve, reject){
+    console.log('inside fetchAccessToken');
+    console.log('code passed to fetchAccessToken: '+code);
+    oAuth2Client.getToken(code, (err, token) => {
+      if (err) return console.error('Error retrieving access token', err);
+      console.log('token:');
+      console.log(token);
+      // Store the token to disk for later program executions
+      // fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err) => {
+      //   if (err) console.error(err);
+      //   console.log('Token stored to', TOKEN_PATH);
+      // });
 
-}//end authorizeUser
+      //set the users cookie for the token for multiple calls and multiple users
+      // req.session.sdsWinToken = sdsWinToken;
+      // console.log ("sds win token in res is" + req.session.sdsWinToken)
+        resolve(token);
+    });
+
+  });
+};
+
+let createFolder = function(auth, projectId){
+  console.log ('in createFolder');
+  console.log (auth);
+  return new Promise(function(resolve, reject){
+    const drive = google.drive({version: 'v3', auth});
+    var fileMetadata = {
+      'name': 'Invoices '+projectId,
+      'mimeType': 'application/vnd.google-apps.folder'
+    };
+    drive.files.create({
+      resource: fileMetadata,
+      fields: 'id'
+    }, function (err, res) {
+      if (err) {
+        // Handle error
+        console.error(err);
+        resolve(err);
+      } else {
+        var folderId = res.data.id;
+        console.log('Folder id: ', folderId);
+        console.log('about to resolve and pass folderId');
+        resolve(folderId);
+      }
+    })
 
 
-authorizeUser(req).then(function(){
-  console.log('\n\nright before rednering win req.session.sdsWinToken:')
-console.log(req.session.sdsWinToken)
-res.render('win',{title:'Folder Created'})
 
-});
+  });
+};
 
 
+// function authorizeUser(req){
+//
+//     return new Promise(function(resolve, reject){
+//
+//
+//
+//   if (req.session.sdsWinToken===undefined)//this seems to always be true
+//   {
+//     console.log('no cookie found for sdsWinToken, getting token');
+//     req.session.sdsWinToken = getAccessToken(oAuth2Client, listFiles, req.query.code)
+//
+//   }
+//   else {
+//     console.log('sdsWinToken found, using it to set credentials:');
+//     console.log(req.session.sdsWinToken);
+//
+//     oAuth2Client.setCredentials(req.session.sdsWinToken);
+//     console.log('about to call list files');
+//     listFiles(oAuth2Client);
+//
+//   }
+//
+//
+// resolve();
+// });//end promise
+//
+// }//end authorizeUser
 
-}); //end router
 
-
-  /**
-   * Lists the names and IDs of up to 10 files.
-   * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
-   */
-
-
-
-//res.render('win',{title:'Authorized for Drive'})
-
-// --previous work--
-//   fs.readFile('credentials.json', (err, content) => {
-//     if (err) return console.log('Error loading client secret file:', err);
-//     // Authorize a client with credentials, then call the Google Drive API.
-//     authorize(JSON.parse(content), listFiles);
-//   });
+// authorizeUser(req).then(function(){
+// console.log('\n\nright before rednering win req.session.sdsWinToken:')
+// console.log(req.session.sdsWinToken)
+//
+//
+// });
+//
+//
+// function getAccessToken(oAuth2Client, callback, code) {
 //
 //
 //
 //
-//   // This will provide an object with the access_token and refresh_token.
-// // Save these somewhere safe so they can be used at a later time.
-// code=req.query.code;
-// console.log('code is: '+code);
-// const {tokens} =  await oauth2Client.getToken(code)
-// fs.writeFile(TOKEN_PATH, JSON.stringify(tokens), (err) => {
-//         if (err) console.error(err);
-//         console.log('Token stored to', TOKEN_PATH);
-//       });
+// }
+//
+// function listFiles(auth) {
 //
 //
-// console.log("tokens access token is: "+tokens.access_token)
-// await oauth2Client.setCredentials(tokens);
-// // oauth2Client.credentials = {access_token : tokens.access_token}
-// console.log(oauth2Client);
-//
-// console.log("About to try to create drive object")
-//
-//   const drive = await google.drive({version: 'v3', oauth2Client});
-//
-//   console.log("drive initialized")
-//
+//   const drive = google.drive({version: 'v3', auth});
 //   var fileMetadata = {
-//       'name': 'Invoices',
-//       'mimeType': 'application/vnd.google-apps.folder'
+//     'name': 'Invoices',
+//     'mimeType': 'application/vnd.google-apps.folder'
 //   };
-//
-//
-//   drive.files.list({
-//     pageSize: 10,
-//     fields: 'nextPageToken, files(id, name)',
-//   }, (err, res) => {
-//     if (err) return console.log('The API returned an error: ' + err);
-//     const files = res.data.files;
-//     if (files.length) {
-//       console.log('Files:');
-//       files.map((file) => {
-//         console.log(`${file.name} (${file.id})`);
-//       });
+//   drive.files.create({
+//     resource: fileMetadata,
+//     fields: 'id'
+//   }, function (err, res) {
+//     if (err) {
+//       // Handle error
+//       console.error(err);
 //     } else {
-//       console.log('No files found.');
+//       console.log('Folder id: ', res.data.id);
 //     }
 //   });
 //
-//   // drive.files.create({
-//   //     //auth:oauth2Client.credentials.tokens.access_token,
-//   //     resource: fileMetadata,
-//   //     fields: 'id'
-//   //   }, function (err, file) {
-//   //     if (err) {
-//   //       // Handle error
-//   //       console.error(err);
-//   //     } else {
-//   //       console.log('Folder Id: ', file.id);
-//   //     }
-//   // });
-//
-// // console.log('auth is' + auth);
+// }//end listfiles
 
-
-router.get('/create-folder', function(req, res, next){
-
-
-res.render('win',{title:'Folder Created'})
-
-});
 
 router.get('/win', function(req, res, next) {
   //
